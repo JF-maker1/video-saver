@@ -7,10 +7,30 @@ export async function POST(request: Request) {
     const body = await request.json()
     const { url } = body
 
-    // 2. Jednoduchá validace
-    if (!url || typeof url !== 'string' || !url.startsWith('http')) {
+    // 2. ROBUSTNÍ VALIDACE (FIXED ISSUE-002)
+    // Místo regexu použijeme nativní URL konstruktor, který je přesnější
+    // a správně zpracuje query parametry (?v=...)
+    let isValidUrl = false
+    try {
+      const parsedUrl = new URL(url)
+      // Musí to být http nebo https
+      if (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:') {
+        isValidUrl = true
+      }
+    } catch (e) {
+      isValidUrl = false
+    }
+
+    if (!url || typeof url !== 'string') {
+       return NextResponse.json(
+        { error: 'URL adresa chybí nebo není text.' },
+        { status: 400 }
+      )
+    }
+
+    if (!isValidUrl) {
       return NextResponse.json(
-        { error: 'Neplatná URL adresa. Musí začínat http:// nebo https://' },
+        { error: 'Neplatný formát URL. Ujistěte se, že adresa obsahuje http:// nebo https://' },
         { status: 400 }
       )
     }
@@ -30,7 +50,7 @@ export async function POST(request: Request) {
     // 5. Úspěch
     return NextResponse.json({
       success: true,
-      message: 'URL adresa videa uložena do databáze aplikace',
+      message: 'URL adresa videa úspěšně uložena.',
       data
     })
 
