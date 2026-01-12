@@ -1,19 +1,31 @@
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/utils/supabase/server'
 import { NextResponse } from 'next/server'
 
 export async function POST(request: Request) {
   try {
-    // 1. Přečtení dat z požadavku
+    // 1. Inicializace Supabase Server Clienta (pro Auth check)
+    // Toto je klíčová změna - používáme cookies pro ověření session
+    const supabase = await createClient()
+
+    // 2. AUTH GUARD (Gatekeeper)
+    // Získáme uživatele ze session. Pokud neexistuje, vracíme 401.
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Unauthorized: Pro uložení videa se musíte přihlásit.' },
+        { status: 401 }
+      )
+    }
+
+    // 3. Přečtení dat z požadavku
     const body = await request.json()
     const { url } = body
 
-    // 2. ROBUSTNÍ VALIDACE (FIXED ISSUE-002)
-    // Místo regexu použijeme nativní URL konstruktor, který je přesnější
-    // a správně zpracuje query parametry (?v=...)
+    // 4. Validace URL
     let isValidUrl = false
     try {
       const parsedUrl = new URL(url)
-      // Musí to být http nebo https
       if (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:') {
         isValidUrl = true
       }
@@ -21,33 +33,30 @@ export async function POST(request: Request) {
       isValidUrl = false
     }
 
-    if (!url || typeof url !== 'string') {
-       return NextResponse.json(
-        { error: 'URL adresa chybí nebo není text.' },
-        { status: 400 }
-      )
-    }
-
-    if (!isValidUrl) {
+    if (!url || typeof url !== 'string' || !isValidUrl) {
       return NextResponse.json(
-        { error: 'Neplatný formát URL. Ujistěte se, že adresa obsahuje http:// nebo https://' },
+        { error: 'Neplatný formát URL.' },
         { status: 400 }
       )
     }
 
-    // 3. Vložení do Supabase
+    // 5. Vložení do Supabase s user_id
+    // Nyní explicitně přidáváme user_id, aby RLS politika "Auth Insert" prošla.
     const { data, error } = await supabase
       .from('urls')
-      .insert([{ url: url }])
+      .insert([
+        { 
+          url: url,
+          user_id: user.id // Připojíme vlastníka
+        }
+      ])
       .select()
 
-    // 4. Obsluha chyb z databáze
     if (error) {
       console.error('Supabase error:', error)
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    // 5. Úspěch
     return NextResponse.json({
       success: true,
       message: 'URL adresa videa úspěšně uložena.',
